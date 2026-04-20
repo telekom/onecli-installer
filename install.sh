@@ -203,7 +203,7 @@ if [ "$MODE" = "web" ]; then
   fi
 
   info "Fetching latest release..."
-  RELEASE=$(curl -fsS -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  RELEASE=$(curl -fsSL -H "Authorization: Bearer ${ACCESS_TOKEN}" \
     "${GITLAB_URL}/api/v4/projects/${GITLAB_PROJECT_ID}/releases/permalink/latest") \
     || err "Failed to fetch release — ensure the token has read_api scope."
   TAG=$(printf '%s' "$RELEASE" | json_get tag_name) || err "Release response missing tag_name."
