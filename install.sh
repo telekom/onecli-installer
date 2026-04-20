@@ -14,7 +14,7 @@
 #        bash install.sh one-1.17.1-darwin-arm64.tar.gz
 #      Skips auth and networking; just extracts and symlinks.
 #
-# For Windows, run the .exe installer directly.
+# For Windows, use install.ps1 (same repo).
 
 set -euo pipefail
 
