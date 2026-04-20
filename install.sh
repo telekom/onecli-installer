@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Installer for the 'one' CLI (macOS / Linux).
+# Installer for the OneCLI (macOS / Linux).
 #
 # Two modes:
 #   1. Web install (curl | bash):
