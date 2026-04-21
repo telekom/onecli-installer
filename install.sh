@@ -106,10 +106,19 @@ json_get() {
   ' "$1"
 }
 
+is_wsl() {
+  grep -qi -E 'microsoft|wsl' /proc/version 2>/dev/null
+}
+
 open_url() {
-  if   command -v open     >/dev/null 2>&1; then open     "$1" >/dev/null 2>&1 || true
-  elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$1" >/dev/null 2>&1 || true
+  # Return 0 if we actually launched a browser, 1 otherwise — callers can
+  # tell the user to open the URL manually when this fails.
+  if   command -v wslview  >/dev/null 2>&1; then wslview  "$1" >/dev/null 2>&1 && return 0
+  elif is_wsl && command -v cmd.exe >/dev/null 2>&1; then cmd.exe /c start "$1" >/dev/null 2>&1 && return 0
+  elif command -v open     >/dev/null 2>&1; then open     "$1" >/dev/null 2>&1 && return 0
+  elif command -v xdg-open >/dev/null 2>&1 && ! is_wsl; then xdg-open "$1" >/dev/null 2>&1 && return 0
   fi
+  return 1
 }
 
 # --- mode detection ---
@@ -142,10 +151,17 @@ auth_device_flow() {
   interval=$(printf '%s'         "$resp" | json_get interval 2>/dev/null || echo 5)
 
   info ""
-  info "  Open:        ${BOLD}${verification_uri}${RESET}"
-  info "  Enter code:  ${BOLD}${user_code}${RESET}"
+  info "  Open this URL:  ${BOLD}${verification_uri}${RESET}"
+  info "  Enter code:     ${BOLD}${user_code}${RESET}"
   info ""
-  open_url "$verification_uri"
+  if ! open_url "$verification_uri"; then
+    if is_wsl; then
+      info "${DIM}(WSL detected — your browser will not open automatically; copy the URL above into your Windows browser.)${RESET}"
+    else
+      info "${DIM}(Could not open a browser automatically — copy the URL above into any browser.)${RESET}"
+    fi
+  fi
+
   info "Waiting for authorization..."
 
   deadline=$(( $(date +%s) + DEVICE_FLOW_TIMEOUT_S ))
