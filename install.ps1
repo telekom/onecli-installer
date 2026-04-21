@@ -42,8 +42,13 @@ param(
     [string]$Token
 )
 
+# Everything runs inside a script block + try/catch so that:
+#   - `throw` from helpers unwinds the block (below) instead of calling `exit`,
+#     which would close the caller's shell when invoked via `irm | iex`.
+#   - $ErrorActionPreference changes don't leak into the user's session.
+try {
+& {
 $ErrorActionPreference = 'Stop'
-Set-StrictMode -Version Latest
 
 # --- constants ---
 $GitLabUrl = 'https://gitlab.devops.telekom.de'
@@ -62,8 +67,9 @@ function Write-Info($msg) { Write-Host $msg }
 function Write-Ok($msg) { Write-Host "✓ $msg" -ForegroundColor Green }
 function Write-Warn2($msg) { Write-Host "! $msg" -ForegroundColor Yellow }
 function Write-Err($msg) {
-    Write-Host "✗ $msg" -ForegroundColor Red
-    exit 1
+    # `throw` unwinds the enclosing script block so the caller sees a clean
+    # error instead of their shell closing (which is what `exit` would do).
+    throw $msg
 }
 
 # --- preflight ---
@@ -274,4 +280,10 @@ try {
     if ($downloadedTarball -and (Test-Path (Split-Path $downloadedTarball -Parent))) {
         Remove-Item -Recurse -Force (Split-Path $downloadedTarball -Parent) -ErrorAction SilentlyContinue
     }
+}
+} # end of & { ... } installer block
+} catch {
+    # Pretty-print the error and keep the shell alive. When invoked via
+    # `irm | iex` we cannot call `exit` — it would close the host.
+    Write-Host "✗ $($_.Exception.Message)" -ForegroundColor Red
 }
