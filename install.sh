@@ -284,11 +284,20 @@ if [ -n "$TOKEN_JSON" ]; then
       ;;
     Linux)
       if command -v secret-tool >/dev/null 2>&1; then
-        printf '%s' "$AUTH_CONFIG" | secret-tool store \
-          --label "${KEYCHAIN_SERVICE} - ${KEYCHAIN_ACCOUNT}" \
-          service "$KEYCHAIN_SERVICE" account "$KEYCHAIN_ACCOUNT"
+        # secret-tool can exit non-zero on systems without a running Secret
+        # Service (headless boxes, WSL, some minimal desktops). Don't let that
+        # abort the installer — the CLI will prompt on first auth attempt.
+        if ! SECRET_TOOL_OUT=$(printf '%s' "$AUTH_CONFIG" | secret-tool store \
+            --label "${KEYCHAIN_SERVICE} - ${KEYCHAIN_ACCOUNT}" \
+            service "$KEYCHAIN_SERVICE" account "$KEYCHAIN_ACCOUNT" 2>&1); then
+          warn "Could not save credentials to keyring: ${SECRET_TOOL_OUT:-secret-tool failed}"
+          warn "Install/start a Secret Service provider (e.g. gnome-keyring-daemon, KeePassXC),"
+          warn "then run 'one auth login' to save credentials."
+          TOKEN_JSON=""
+        fi
       else
         warn "secret-tool (libsecret) not found — run 'one auth login' once to save credentials."
+        TOKEN_JSON=""
       fi
       ;;
   esac
