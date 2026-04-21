@@ -77,9 +77,13 @@ $node = Get-Command node -ErrorAction SilentlyContinue
 if (-not $node) {
     Write-Err "Node.js >= $NodeMinMajor is required. Install from https://nodejs.org"
 }
-$nodeMajor = [int](& node -e 'process.stdout.write(process.versions.node.split(".")[0])')
+# Parse `node --version` (e.g. "v24.14.0") in PowerShell to avoid
+# PowerShell's argument-rewriting quirk that strips embedded double quotes
+# when calling external executables with `node -e '...".".."'`.
+$nodeVersion = (& node --version).TrimStart('v', 'V')
+$nodeMajor = [int]($nodeVersion.Split('.')[0])
 if ($nodeMajor -lt $NodeMinMajor) {
-    Write-Err "Node.js >= $NodeMinMajor required (found $nodeMajor)"
+    Write-Err "Node.js >= $NodeMinMajor required (found $nodeVersion)"
 }
 $tar = Get-Command tar -ErrorAction SilentlyContinue
 if (-not $tar) {
