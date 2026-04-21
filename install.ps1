@@ -56,6 +56,15 @@ try {
 & {
 $ErrorActionPreference = 'Stop'
 
+# --- proxy splat: forwarded to every internal Invoke-RestMethod /
+# Invoke-WebRequest call so corporate proxies that require explicit
+# credentials are happy. No-op when HTTPS_PROXY isn't set.
+$ProxyArgs = @{}
+if ($env:HTTPS_PROXY) {
+    $ProxyArgs.Proxy = $env:HTTPS_PROXY
+    $ProxyArgs.ProxyUseDefaultCredentials = $true
+}
+
 # --- constants ---
 $GitLabUrl = 'https://gitlab.devops.telekom.de'
 $GitLabProjectId = '452386'
@@ -116,7 +125,7 @@ function Invoke-DeviceFlow {
     try {
         $resp = Invoke-RestMethod -Method Post -Uri "$GitLabUrl/oauth/authorize_device" `
             -Body @{ client_id = $GitLabClientId; scope = $GitLabScopes } `
-            -ContentType 'application/x-www-form-urlencoded'
+            -ContentType 'application/x-www-form-urlencoded' @ProxyArgs
     } catch {
         return $false
     }
@@ -141,7 +150,7 @@ function Invoke-DeviceFlow {
                     device_code = $resp.device_code
                     grant_type  = 'urn:ietf:params:oauth:grant-type:device_code'
                 } `
-                -ContentType 'application/x-www-form-urlencoded'
+                -ContentType 'application/x-www-form-urlencoded' @ProxyArgs
         } catch {
             $tok = $null
             if ($_.Exception.Response) {
@@ -212,7 +221,7 @@ if ($mode -eq 'web') {
     try {
         $headers = @{ Authorization = "Bearer $accessToken" }
         $resp = Invoke-WebRequest -Headers $headers -Uri $permalinkUrl -MaximumRedirection 0 `
-            -UseBasicParsing -ErrorAction Stop
+            -UseBasicParsing -ErrorAction Stop @ProxyArgs
         # Not a redirect — endpoint returned the release directly.
         $release = $resp.Content | ConvertFrom-Json
     } catch {
@@ -226,7 +235,7 @@ if ($mode -eq 'web') {
         if ($statusCode -in 301, 302, 303, 307, 308 -and $location) {
             if ($location -notmatch '^https?://') { $location = "$GitLabUrl$location" }
             try {
-                $release = Invoke-RestMethod -Headers @{ Authorization = "Bearer $accessToken" } -Uri $location
+                $release = Invoke-RestMethod -Headers @{ Authorization = "Bearer $accessToken" } -Uri $location @ProxyArgs
             } catch {
                 $rStatus = ''
                 if ($_.Exception.Response) {
@@ -253,7 +262,7 @@ if ($mode -eq 'web') {
     Write-Info "Downloading $tag ($target)..."
     try {
         Invoke-WebRequest -Headers @{ Authorization = "Bearer $accessToken" } `
-            -Uri $link.url -OutFile $downloadedTarball -UseBasicParsing
+            -Uri $link.url -OutFile $downloadedTarball -UseBasicParsing @ProxyArgs
     } catch {
         Write-Err "Download failed: $($_.Exception.Message)"
     }
