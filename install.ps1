@@ -204,25 +204,43 @@ if ($mode -eq 'web') {
     }
 
     Write-Info 'Fetching latest release...'
-    # We avoid /releases/permalink/latest because PS 5.1's Invoke-RestMethod
-    # strips the Authorization header when following its 302 redirect
-    # (-PreserveAuthorizationOnRedirect only exists on PS 7.3+).
-    $releasesUrl = "$GitLabUrl/api/v4/projects/$GitLabProjectId/releases"
+    # Manually follow the 302 from /releases/permalink/latest so the
+    # Authorization header survives (PS 5.1's Invoke-RestMethod strips it
+    # across redirects — -PreserveAuthorizationOnRedirect is PS 7.3+).
+    $permalinkUrl = "$GitLabUrl/api/v4/projects/$GitLabProjectId/releases/permalink/latest"
+    $release = $null
     try {
-        $releases = Invoke-RestMethod -Headers @{ Authorization = "Bearer $accessToken" } -Uri $releasesUrl
+        $headers = @{ Authorization = "Bearer $accessToken" }
+        $resp = Invoke-WebRequest -Headers $headers -Uri $permalinkUrl -MaximumRedirection 0 `
+            -UseBasicParsing -ErrorAction Stop
+        # Not a redirect — endpoint returned the release directly.
+        $release = $resp.Content | ConvertFrom-Json
     } catch {
-        $httpStatus = ''
+        $statusCode = 0
+        $location = $null
         if ($_.Exception.Response) {
-            try { $httpStatus = " [HTTP $([int]$_.Exception.Response.StatusCode)]" } catch {}
+            try { $statusCode = [int]$_.Exception.Response.StatusCode } catch {}
+            try { $location = $_.Exception.Response.Headers['Location'] } catch {}
         }
-        Write-Err "Failed to fetch releases from $releasesUrl$httpStatus : $($_.Exception.Message)"
+
+        if ($statusCode -in 301, 302, 303, 307, 308 -and $location) {
+            if ($location -notmatch '^https?://') { $location = "$GitLabUrl$location" }
+            try {
+                $release = Invoke-RestMethod -Headers @{ Authorization = "Bearer $accessToken" } -Uri $location
+            } catch {
+                $rStatus = ''
+                if ($_.Exception.Response) {
+                    try { $rStatus = " [HTTP $([int]$_.Exception.Response.StatusCode)]" } catch {}
+                }
+                Write-Err "Failed to fetch release at $location$rStatus : $($_.Exception.Message)"
+            }
+        } else {
+            $s = if ($statusCode) { " [HTTP $statusCode]" } else { '' }
+            Write-Err "Failed to fetch latest release from $permalinkUrl$s : $($_.Exception.Message)"
+        }
     }
 
-    if (-not $releases -or $releases.Count -eq 0) {
-        Write-Err "GitLab returned no releases at $releasesUrl."
-    }
-
-    $release = $releases[0]
+    if (-not $release) { Write-Err "Could not resolve a release object from $permalinkUrl." }
     $tag = $release.tag_name
     if (-not $tag) { Write-Err 'Release response missing tag_name.' }
 
