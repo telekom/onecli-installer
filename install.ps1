@@ -204,19 +204,22 @@ if ($mode -eq 'web') {
     }
 
     Write-Info 'Fetching latest release...'
-    # Use /releases?per_page=1 instead of /releases/permalink/latest — the
-    # permalink endpoint returns a 302 redirect, and PS 5.1's
-    # Invoke-RestMethod strips the Authorization header when following
-    # redirects, which makes the followed request hit a 401.
+    # We avoid /releases/permalink/latest because PS 5.1's Invoke-RestMethod
+    # strips the Authorization header when following its 302 redirect
+    # (-PreserveAuthorizationOnRedirect only exists on PS 7.3+).
+    $releasesUrl = "$GitLabUrl/api/v4/projects/$GitLabProjectId/releases"
     try {
-        $releases = Invoke-RestMethod -Headers @{ Authorization = "Bearer $accessToken" } `
-            -Uri "$GitLabUrl/api/v4/projects/$GitLabProjectId/releases?per_page=1"
+        $releases = Invoke-RestMethod -Headers @{ Authorization = "Bearer $accessToken" } -Uri $releasesUrl
     } catch {
-        Write-Err "Failed to fetch release list: $($_.Exception.Message)"
+        $httpStatus = ''
+        if ($_.Exception.Response) {
+            try { $httpStatus = " [HTTP $([int]$_.Exception.Response.StatusCode)]" } catch {}
+        }
+        Write-Err "Failed to fetch releases from $releasesUrl$httpStatus : $($_.Exception.Message)"
     }
 
     if (-not $releases -or $releases.Count -eq 0) {
-        Write-Err 'GitLab returned no releases for this project.'
+        Write-Err "GitLab returned no releases at $releasesUrl."
     }
 
     $release = $releases[0]
