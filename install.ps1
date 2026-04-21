@@ -6,8 +6,14 @@
 .DESCRIPTION
   Two modes:
 
-    1. Web install (iwr | iex):
-         iwr -useb https://raw.githubusercontent.com/telekom/onecli-installer/main/install.ps1 | iex
+    1. Web install (irm | iex):
+         irm https://raw.githubusercontent.com/telekom/onecli-installer/main/install.ps1 | iex
+
+       Behind a corporate proxy, forward $env:HTTPS_PROXY explicitly:
+         $u = 'https://raw.githubusercontent.com/telekom/onecli-installer/main/install.ps1'
+         $a = @{ Uri = $u }
+         if ($env:HTTPS_PROXY) { $a.Proxy = $env:HTTPS_PROXY; $a.ProxyUseDefaultCredentials = $true }
+         iex (irm @a)
 
        Authenticates against GitLab via OAuth 2.0 device flow (falls back
        to a Personal Access Token prompt), downloads the latest Windows
