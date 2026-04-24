@@ -213,43 +213,23 @@ if ($mode -eq 'web') {
     }
 
     Write-Info 'Fetching latest release...'
-    # Manually follow the 302 from /releases/permalink/latest so the
-    # Authorization header survives (PS 5.1's Invoke-RestMethod strips it
-    # across redirects — -PreserveAuthorizationOnRedirect is PS 7.3+).
-    $permalinkUrl = "$GitLabUrl/api/v4/projects/$GitLabProjectId/releases/permalink/latest"
+    $releasesUrl = "$GitLabUrl/api/v4/projects/$GitLabProjectId/releases?per_page=1"
     $release = $null
     try {
-        $headers = @{ Authorization = "Bearer $accessToken" }
-        $resp = Invoke-WebRequest -Headers $headers -Uri $permalinkUrl -MaximumRedirection 0 `
-            -UseBasicParsing -ErrorAction Stop @ProxyArgs
-        # Not a redirect — endpoint returned the release directly.
-        $release = $resp.Content | ConvertFrom-Json
+        $releases = Invoke-RestMethod -Headers @{ Authorization = "Bearer $script:accessToken" } `
+            -Uri $releasesUrl @ProxyArgs
+        if ($releases -and $releases.Count -gt 0) {
+            $release = $releases[0]
+        }
     } catch {
-        $statusCode = 0
-        $location = $null
+        $s = ''
         if ($_.Exception.Response) {
-            try { $statusCode = [int]$_.Exception.Response.StatusCode } catch {}
-            try { $location = $_.Exception.Response.Headers['Location'] } catch {}
+            try { $s = " [HTTP $([int]$_.Exception.Response.StatusCode)]" } catch {}
         }
-
-        if ($statusCode -in 301, 302, 303, 307, 308 -and $location) {
-            if ($location -notmatch '^https?://') { $location = "$GitLabUrl$location" }
-            try {
-                $release = Invoke-RestMethod -Headers @{ Authorization = "Bearer $accessToken" } -Uri $location @ProxyArgs
-            } catch {
-                $rStatus = ''
-                if ($_.Exception.Response) {
-                    try { $rStatus = " [HTTP $([int]$_.Exception.Response.StatusCode)]" } catch {}
-                }
-                Write-Err "Failed to fetch release at $location$rStatus : $($_.Exception.Message)"
-            }
-        } else {
-            $s = if ($statusCode) { " [HTTP $statusCode]" } else { '' }
-            Write-Err "Failed to fetch latest release from $permalinkUrl$s : $($_.Exception.Message)"
-        }
+        Write-Err "Failed to fetch latest release from $releasesUrl$s : $($_.Exception.Message)"
     }
 
-    if (-not $release) { Write-Err "Could not resolve a release object from $permalinkUrl." }
+    if (-not $release) { Write-Err "Could not resolve a release object from $releasesUrl." }
     $tag = $release.tag_name
     if (-not $tag) { Write-Err 'Release response missing tag_name.' }
 
@@ -261,7 +241,7 @@ if ($mode -eq 'web') {
     $downloadedTarball = Join-Path $tmp 'pkg.tar.gz'
     Write-Info "Downloading $tag ($target)..."
     try {
-        Invoke-WebRequest -Headers @{ Authorization = "Bearer $accessToken" } `
+        Invoke-WebRequest -Headers @{ Authorization = "Bearer $script:accessToken" } `
             -Uri $link.url -OutFile $downloadedTarball -UseBasicParsing @ProxyArgs
     } catch {
         Write-Err "Download failed: $($_.Exception.Message)"
