@@ -256,7 +256,11 @@ $extractDir = New-Item -ItemType Directory -Path (Join-Path ([System.IO.Path]::G
 
 try {
     Write-Info 'Extracting...'
-    & tar -xzf $Tarball -C $extractDir
+    # Skip node_modules/.bin/* — those are Unix-style symlinks produced on the
+    # Linux CI runner. Windows tar cannot create them without Developer Mode /
+    # admin, and the CLI does not need them at runtime (bin\one.cmd invokes
+    # node on dist/index.js directly).
+    & tar -xzf $Tarball -C $extractDir --exclude='*/node_modules/.bin/*'
     if ($LASTEXITCODE -ne 0) { Write-Err "tar failed with exit code $LASTEXITCODE" }
 
     $extracted = Get-ChildItem -Path $extractDir -Directory | Where-Object { $_.Name -like 'one*' } | Select-Object -First 1
