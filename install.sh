@@ -319,19 +319,47 @@ if [ -n "$TOKEN_JSON" ]; then
   esac
 fi
 
-# --- PATH hint ---
+# --- PATH setup ---
+# If BIN_DIR is already on PATH we're done. Otherwise write the export line to
+# the user's shell rc file (idempotent — skipped when the line is already
+# present) and tell the user to re-source it. This is the common failure mode
+# on Ubuntu / WSL where ~/.local/bin is not in the default session PATH.
 case ":${PATH}:" in
   *:"${BIN_DIR}":*) ;;
   *)
+    PATH_LINE="export PATH=\"${BIN_DIR}:\$PATH\""
+    PATH_WRITTEN=0
     case "$(basename "${SHELL:-bash}")" in
-      zsh)  RCFILE="~/.zshrc" ;;
-      bash) RCFILE="~/.bashrc (or ~/.bash_profile on macOS)" ;;
-      fish) RCFILE="~/.config/fish/config.fish" ;;
-      *)    RCFILE="your shell rc file" ;;
+      zsh)
+        RCFILE="${HOME}/.zshrc"
+        ;;
+      fish)
+        RCFILE="${HOME}/.config/fish/config.fish"
+        # fish uses a different syntax; fall back to warn-only for fish users.
+        RCFILE=""
+        ;;
+      *)
+        # bash (including WSL default) and unknown shells
+        RCFILE="${HOME}/.bashrc"
+        ;;
     esac
-    warn "${BIN_DIR} is not on your PATH."
-    info "Add this to ${RCFILE}:"
-    info "  ${BOLD}export PATH=\"${BIN_DIR}:\$PATH\"${RESET}"
+
+    if [ -n "$RCFILE" ]; then
+      # Write only if the line (or the bin dir) isn't already present.
+      if ! grep -qF "$BIN_DIR" "$RCFILE" 2>/dev/null; then
+        printf '\n# OneCLI\n%s\n' "$PATH_LINE" >> "$RCFILE"
+        PATH_WRITTEN=1
+      fi
+    fi
+
+    if [ "$PATH_WRITTEN" -eq 1 ]; then
+      ok "Added ${BIN_DIR} to PATH in ${RCFILE}"
+      info "Run ${BOLD}source ${RCFILE}${RESET} or open a new terminal to apply."
+    else
+      warn "${BIN_DIR} is not on your PATH."
+      info "Add this to your shell rc file:"
+      info "  ${BOLD}${PATH_LINE}${RESET}"
+    fi
     ;;
 esac
 
