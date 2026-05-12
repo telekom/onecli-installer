@@ -19,6 +19,7 @@
 set -euo pipefail
 trap 'echo "DEBUG: script exited unexpectedly at line $LINENO (exit code: $?)" >&2' ERR
 
+main() {
 # --- constants ---
 GITLAB_URL="https://gitlab.devops.telekom.de"
 GITLAB_PROJECT_ID="452386"
@@ -393,3 +394,6 @@ else
   ok "Installed one → ${BIN_LINK}"
   info "Run ${BOLD}one auth login${RESET} (if you haven't), then try ${BOLD}one --help${RESET}."
 fi
+} # end main
+
+main "$@"
