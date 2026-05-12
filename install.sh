@@ -17,6 +17,7 @@
 # For Windows, use install.ps1 (same repo).
 
 set -euo pipefail
+trap 'echo "DEBUG: script exited unexpectedly at line $LINENO (exit code: $?)" >&2' ERR
 
 # --- constants ---
 GITLAB_URL="https://gitlab.devops.telekom.de"
@@ -239,7 +240,20 @@ if [ "$MODE" = "web" ]; then
   trap 'rm -rf "$TMP_DOWNLOAD"' EXIT
   DOWNLOADED_TARBALL="${TMP_DOWNLOAD}/pkg.tar.gz"
   info "Downloading ${TAG} ${DIM}(${TARGET})${RESET}..."
-  curl -fsSL -H "Authorization: Bearer ${ACCESS_TOKEN}" -o "$DOWNLOADED_TARBALL" "$ASSET_URL"
+  info "DEBUG: asset URL = ${ASSET_URL}"
+  CURL_ERR=$(mktemp)
+  HTTP_CODE=$(curl -sSL --write-out '%{http_code}' \
+    -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+    -o "$DOWNLOADED_TARBALL" "$ASSET_URL" 2>"$CURL_ERR") || true
+  info "DEBUG: curl HTTP status = ${HTTP_CODE}, exit code = $?"
+  if [ -s "$CURL_ERR" ]; then info "DEBUG: curl stderr: $(cat "$CURL_ERR")"; fi
+  rm -f "$CURL_ERR"
+  if [ "${HTTP_CODE}" != "200" ]; then
+    err "Download failed — HTTP ${HTTP_CODE}. Check that the access token has read_api scope and the asset URL is reachable."
+  fi
+  TARBALL_SIZE=$(wc -c < "$DOWNLOADED_TARBALL" 2>/dev/null || echo 0)
+  info "DEBUG: downloaded ${TARBALL_SIZE} bytes to ${DOWNLOADED_TARBALL}"
+  [ "${TARBALL_SIZE}" -gt 0 ] || err "Downloaded file is empty."
   TARBALL="$DOWNLOADED_TARBALL"
 else
   info "${BOLD}Installing one-cli${RESET} ${DIM}(from $(basename "$TARBALL"))${RESET}"
