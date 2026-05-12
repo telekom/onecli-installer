@@ -140,7 +140,8 @@ auth_device_flow() {
   local resp http_code
   resp=$(curl -sS -w '\n%{http_code}' -X POST "${GITLAB_URL}/oauth/authorize_device" \
     --data-urlencode "client_id=${GITLAB_CLIENT_ID}" \
-    --data-urlencode "scope=${GITLAB_SCOPES}" 2>/dev/null || true)
+    --data-urlencode "scope=${GITLAB_SCOPES}" \
+    </dev/null 2>/dev/null || true)
   http_code=$(printf '%s' "$resp" | tail -n1)
   resp=$(printf '%s' "$resp" | sed '$d')
   case "$http_code" in 200|201) ;; *) return 1 ;; esac
@@ -172,7 +173,8 @@ auth_device_flow() {
     tok=$(curl -sS -X POST "${GITLAB_URL}/oauth/token" \
       --data-urlencode "client_id=${GITLAB_CLIENT_ID}" \
       --data-urlencode "device_code=${device_code}" \
-      --data-urlencode "grant_type=urn:ietf:params:oauth:grant-type:device_code" 2>/dev/null || echo "")
+      --data-urlencode "grant_type=urn:ietf:params:oauth:grant-type:device_code" \
+      </dev/null 2>/dev/null || echo "")
     err_code=$(printf '%s' "$tok" | json_get error 2>/dev/null || true)
     if [ -z "$err_code" ]; then
       ACCESS_TOKEN=$(printf '%s' "$tok" | json_get access_token 2>/dev/null || true)
@@ -221,7 +223,8 @@ if [ "$MODE" = "web" ]; then
 
   info "Fetching latest release..."
   RELEASE=$(curl -fsSL -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-    "${GITLAB_URL}/api/v4/projects/${GITLAB_PROJECT_ID}/releases/permalink/latest") \
+    "${GITLAB_URL}/api/v4/projects/${GITLAB_PROJECT_ID}/releases/permalink/latest" \
+    </dev/null) \
     || err "Failed to fetch release — ensure the token has read_api scope."
   TAG=$(printf '%s' "$RELEASE" | json_get tag_name) || err "Release response missing tag_name."
 
@@ -244,7 +247,8 @@ if [ "$MODE" = "web" ]; then
   CURL_ERR=$(mktemp)
   HTTP_CODE=$(curl -sSL --write-out '%{http_code}' \
     -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-    -o "$DOWNLOADED_TARBALL" "$ASSET_URL" 2>"$CURL_ERR") || true
+    -o "$DOWNLOADED_TARBALL" "$ASSET_URL" \
+    </dev/null 2>"$CURL_ERR") || true
   info "DEBUG: curl HTTP status = ${HTTP_CODE}, exit code = $?"
   if [ -s "$CURL_ERR" ]; then info "DEBUG: curl stderr: $(cat "$CURL_ERR")"; fi
   rm -f "$CURL_ERR"
