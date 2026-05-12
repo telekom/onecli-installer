@@ -18,6 +18,7 @@
 
 set -euo pipefail
 
+main() {
 # --- constants ---
 GITLAB_URL="https://gitlab.devops.telekom.de"
 GITLAB_PROJECT_ID="452386"
@@ -375,3 +376,6 @@ else
   ok "Installed one → ${BIN_LINK}"
   info "Run ${BOLD}one auth login${RESET} (if you haven't), then try ${BOLD}one --help${RESET}."
 fi
+} # end main
+
+main "$@"
