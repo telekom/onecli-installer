@@ -329,10 +329,9 @@ try {
         } catch { <# best-effort — relay not yet populated or network unavailable #> }
     }
 
-    # Create the data dir and start the 24 h token-refresh window at install time.
+    # Create the data dir so the CLI finds it on first use.
     try {
         New-Item -ItemType Directory -Path $OneDataDir -Force | Out-Null
-        $null = New-Item -ItemType File -Path (Join-Path $OneDataDir 'telemetry-token-check') -Force
     } catch { <# best-effort #> }
 
     Write-Info ''

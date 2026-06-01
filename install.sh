@@ -365,7 +365,6 @@ fi
 # on first use; the marker just starts the 24 h window at install time so that
 # retry doesn't happen immediately on the very first command.
 mkdir -p "$ONE_DATA_DIR"
-touch "${ONE_DATA_DIR}/telemetry-token-check"
 
 # --- PATH setup ---
 # If BIN_DIR is already on PATH we're done. Otherwise write the export line to
