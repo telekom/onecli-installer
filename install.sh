@@ -32,7 +32,7 @@ DEVICE_FLOW_TIMEOUT_S=900
 # --- defaults (overridable via flags / env) ---
 INSTALL_DIR="${ONE_INSTALL_DIR:-${HOME}/.one}"
 BIN_DIR="${ONE_BIN_DIR:-${HOME}/.local/bin}"
-# Data directory used by the CLI for settings, markers, and keychain fallback.
+# Data directory used by the CLI for settings and keychain fallback.
 # Must match the default in src/services/config/paths.ts (overridable via ONE_DATA_DIR).
 ONE_DATA_DIR="${ONE_DATA_DIR:-${HOME}/.onecli}"
 TARBALL=""
@@ -331,10 +331,7 @@ fi
 # The token is stored under the same keychain service as the OAuth credentials
 # but a distinct account ("telemetry-prod") so the two never collide.
 #
-# We also create the data directory, touch the daily-refresh marker (so the
-# CLI doesn't immediately re-fetch on first run), and create the privacy-notice
-# marker (the notice is printed here instead, in context, where it's harder to
-# miss than a small stderr note during a later command).
+# We also create the data directory so the CLI finds it on first use.
 if [ -n "$ACCESS_TOKEN" ]; then
   TELEMETRY_TOKEN=$(curl -fsSL \
     -H "Authorization: Bearer ${ACCESS_TOKEN}" \
@@ -360,12 +357,9 @@ if [ -n "$ACCESS_TOKEN" ]; then
   fi
 fi
 
-# Create the data dir and touch the token-refresh marker regardless of whether
-# the keychain write succeeded. If it failed the CLI will retry the relay fetch
-# on first use; the marker just starts the 24 h window at install time so that
-# retry doesn't happen immediately on the very first command.
+# Create the data dir regardless of whether the keychain write succeeded.
+# If it failed the CLI will fetch the token lazily on first use.
 mkdir -p "$ONE_DATA_DIR"
-touch "${ONE_DATA_DIR}/telemetry-token-check"
 
 # --- PATH setup ---
 # If BIN_DIR is already on PATH we're done. Otherwise write the export line to

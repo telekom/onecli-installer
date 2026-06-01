@@ -77,6 +77,12 @@ if (-not $Token -and $env:ONE_TOKEN) { $Token = $env:ONE_TOKEN }
 if ($env:ONE_INSTALL_DIR) { $InstallDir = $env:ONE_INSTALL_DIR }
 if ($env:ONE_BIN_DIR) { $BinDir = $env:ONE_BIN_DIR }
 
+# Data directory used by the CLI for settings and keychain fallback.
+# Must match the default in src/services/config/paths.ts (overridable via ONE_DATA_DIR).
+$OneDataDir = if ($env:ONE_DATA_DIR) { $env:ONE_DATA_DIR } `
+              elseif ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'onecli' } `
+              else { Join-Path $env:USERPROFILE 'AppData\Local\onecli' }
+
 # --- output helpers ---
 function Write-Info($msg) { Write-Host $msg }
 function Write-Ok($msg) { Write-Host "✓ $msg" -ForegroundColor Green }
@@ -296,6 +302,36 @@ try {
         [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
         Write-Warn2 "Added $BinDir to your user PATH. Open a new terminal for the change to take effect."
     }
+
+    # --- prime telemetry token (web mode; best-effort, never aborts install) ---
+    # Fetch the OTLP bearer token from the GitLab package registry and cache it
+    # so the CLI has a ready token from run #1. The token is stored in Windows
+    # Credential Manager under the same target as other CLI credentials.
+    # Creates the data directory regardless of whether the keychain write
+    # succeeds — the CLI fetches the token lazily on first use if needed.
+    if ($mode -eq 'web' -and $accessToken) {
+        try {
+            $telemetryTokenUrl = "$GitLabUrl/api/v4/projects/$GitLabProjectId/packages/generic/telemetry/current/otlp-token-prod"
+            $telemetryToken = (Invoke-RestMethod `
+                -Headers @{ Authorization = "Bearer $accessToken" } `
+                -Uri $telemetryTokenUrl @ProxyArgs).Trim()
+
+            if ($telemetryToken) {
+                try {
+                    # Store in Windows Credential Manager so the CLI keychain layer can read it.
+                    # cmdkey /generic stores a generic credential; the CLI reads this via the
+                    # CredentialManager PowerShell module using the same target name format.
+                    $credTarget = "de.telekom.one:telemetry-prod"
+                    & cmdkey /generic:$credTarget /user:telemetry-prod /pass:$telemetryToken 2>$null | Out-Null
+                } catch { <# best-effort #> }
+            }
+        } catch { <# best-effort — relay not yet populated or network unavailable #> }
+    }
+
+    # Create the data dir so the CLI finds it on first use.
+    try {
+        New-Item -ItemType Directory -Path $OneDataDir -Force | Out-Null
+    } catch { <# best-effort #> }
 
     Write-Info ''
     if ($mode -eq 'web') {
