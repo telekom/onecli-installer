@@ -367,11 +367,6 @@ fi
 mkdir -p "$ONE_DATA_DIR"
 touch "${ONE_DATA_DIR}/telemetry-token-check"
 
-info ""
-info "${DIM}OneCLI collects anonymous usage telemetry (command names, OS/arch, errors)"
-info "to help improve the tool. No personal data is collected. Disable anytime:"
-info "  one config   →  set telemetry_enabled: false   (or)   ONE_TELEMETRY=0${RESET}"
-
 # --- PATH setup ---
 # If BIN_DIR is already on PATH we're done. Otherwise write the export line to
 # the user's shell rc file (idempotent — skipped when the line is already
