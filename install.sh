@@ -360,11 +360,12 @@ if [ -n "$ACCESS_TOKEN" ]; then
   fi
 fi
 
-# Create data dir and seed marker files regardless of keychain result.
-# If the keychain write failed the CLI will retry the relay fetch on first use.
+# Create the data dir and touch the token-refresh marker regardless of whether
+# the keychain write succeeded. If it failed the CLI will retry the relay fetch
+# on first use; the marker just starts the 24 h window at install time so that
+# retry doesn't happen immediately on the very first command.
 mkdir -p "$ONE_DATA_DIR"
-touch "${ONE_DATA_DIR}/telemetry-token-check"   # start the 24 h refresh window now
-touch "${ONE_DATA_DIR}/telemetry-notice-shown"  # notice is printed below instead
+touch "${ONE_DATA_DIR}/telemetry-token-check"
 
 info ""
 info "${DIM}OneCLI collects anonymous usage telemetry (command names, OS/arch, errors)"
