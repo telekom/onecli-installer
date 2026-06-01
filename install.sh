@@ -32,6 +32,9 @@ DEVICE_FLOW_TIMEOUT_S=900
 # --- defaults (overridable via flags / env) ---
 INSTALL_DIR="${ONE_INSTALL_DIR:-${HOME}/.one}"
 BIN_DIR="${ONE_BIN_DIR:-${HOME}/.local/bin}"
+# Data directory used by the CLI for settings, markers, and keychain fallback.
+# Must match the default in src/services/config/paths.ts (overridable via ONE_DATA_DIR).
+ONE_DATA_DIR="${ONE_DATA_DIR:-${HOME}/.onecli}"
 TARBALL=""
 
 # --- arg parsing (preserves the previous script's flags) ---
@@ -319,6 +322,54 @@ if [ -n "$TOKEN_JSON" ]; then
       ;;
   esac
 fi
+
+# --- prime telemetry token (web mode; best-effort, never aborts install) ---
+# Fetch the OTLP bearer token from the GitLab package registry and cache it in
+# the OS keychain. This means the CLI has a ready token from run #1 and never
+# needs to make a cold network fetch during command startup.
+#
+# The token is stored under the same keychain service as the OAuth credentials
+# but a distinct account ("telemetry-prod") so the two never collide.
+#
+# We also create the data directory, touch the daily-refresh marker (so the
+# CLI doesn't immediately re-fetch on first run), and create the privacy-notice
+# marker (the notice is printed here instead, in context, where it's harder to
+# miss than a small stderr note during a later command).
+if [ -n "$ACCESS_TOKEN" ]; then
+  TELEMETRY_TOKEN=$(curl -fsSL \
+    -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+    "${GITLAB_URL}/api/v4/projects/${GITLAB_PROJECT_ID}/packages/generic/telemetry/current/otlp-token-prod" \
+    2>/dev/null || true)
+
+  if [ -n "$TELEMETRY_TOKEN" ]; then
+    case "$(uname -s)" in
+      Darwin)
+        security add-generic-password \
+          -s "$KEYCHAIN_SERVICE" -a "telemetry-prod" -w "$TELEMETRY_TOKEN" -U \
+          >/dev/null 2>&1 || true
+        ;;
+      Linux)
+        if command -v secret-tool >/dev/null 2>&1; then
+          printf '%s' "$TELEMETRY_TOKEN" | secret-tool store \
+            --label "${KEYCHAIN_SERVICE} - telemetry-prod" \
+            service "$KEYCHAIN_SERVICE" account "telemetry-prod" \
+            >/dev/null 2>&1 || true
+        fi
+        ;;
+    esac
+  fi
+fi
+
+# Create data dir and seed marker files regardless of keychain result.
+# If the keychain write failed the CLI will retry the relay fetch on first use.
+mkdir -p "$ONE_DATA_DIR"
+touch "${ONE_DATA_DIR}/telemetry-token-check"   # start the 24 h refresh window now
+touch "${ONE_DATA_DIR}/telemetry-notice-shown"  # notice is printed below instead
+
+info ""
+info "${DIM}OneCLI collects anonymous usage telemetry (command names, OS/arch, errors)"
+info "to help improve the tool. No personal data is collected. Disable anytime:"
+info "  one config   →  set telemetry_enabled: false   (or)   ONE_TELEMETRY=0${RESET}"
 
 # --- PATH setup ---
 # If BIN_DIR is already on PATH we're done. Otherwise write the export line to
