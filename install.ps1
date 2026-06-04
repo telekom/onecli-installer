@@ -296,20 +296,29 @@ try {
     # then write with -Force to overwrite cleanly.
     if (Test-Path $shimPath) { Set-ItemProperty -Path $shimPath -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue }
     Set-Content -Path $shimPath -Value $shimBody -Encoding ASCII -NoNewline -Force
+    Write-Ok "Created Windows shim -> $shimPath"
 
     try {
-        $oneLauncherUnix = $oneLauncher -replace '\\', '/'
+        $oneLauncherUnix = ($oneLauncher -replace '\\', '/') -replace "'", "'\''"
         $execCmd = if ($oneLauncher -like '*.cmd') {
-            "`"$oneLauncherUnix`""
+            "'$oneLauncherUnix'"
         } else {
-            "node `"$oneLauncherUnix`""
+            "node '$oneLauncherUnix'"
         }
-        $shShimBody = "#!/bin/sh`nif grep -qiE 'microsoft|wsl' /proc/version 2>/dev/null; then`n  echo `"WSL detected — please install the Linux version.`" >&2`n  exit 1`nfi`nexec $execCmd `"`$@`"`n"
+        $shShimBody = (@"
+#!/bin/sh
+if grep -qiE 'microsoft|wsl' /proc/version 2>/dev/null; then
+  echo "WSL detected - please install the Linux version." >&2
+  exit 1
+fi
+exec $execCmd "`$@"
+"@) -replace "`r`n", "`n"
 
         $shShimPath = Join-Path $BinDir 'one'
         # Clear read-only from a prior install so the overwrite doesn't fail.
         if (Test-Path $shShimPath) { Set-ItemProperty -Path $shShimPath -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue }
         [System.IO.File]::WriteAllText($shShimPath, $shShimBody, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Ok "Created Unix shim -> $shShimPath"
     } catch {
         Write-Warn2 "Could not create the Unix-style 'one' shim (Git Bash/MSYS2/WSL): $($_.Exception.Message). The Windows 'one.cmd' shim still works."
     }
