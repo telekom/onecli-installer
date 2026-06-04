@@ -292,9 +292,6 @@ try {
     if (-not (Test-Path $BinDir)) { New-Item -ItemType Directory -Path $BinDir -Force | Out-Null }
     $shimPath = Join-Path $BinDir 'one.cmd'
     $shimBody = "@echo off`r`n`"$oneLauncher`" %*`r`n"
-    # Clear any read-only attribute from a prior install so reinstalls don't fail,
-    # then write with -Force to overwrite cleanly.
-    if (Test-Path $shimPath) { Set-ItemProperty -Path $shimPath -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue }
     Set-Content -Path $shimPath -Value $shimBody -Encoding ASCII -NoNewline -Force
     Write-Ok "Created Windows shim -> $shimPath"
 
