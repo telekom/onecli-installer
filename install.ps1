@@ -292,7 +292,7 @@ try {
     if (-not (Test-Path $BinDir)) { New-Item -ItemType Directory -Path $BinDir -Force | Out-Null }
     $shimPath = Join-Path $BinDir 'one.cmd'
     $shimBody = "@echo off`r`n`"$oneLauncher`" %*`r`n"
-    Set-Content -Path $shimPath -Value $shimBody -Encoding ASCII -NoNewline -Force
+Set-Content -Path $shimPath -Value $shimBody -Encoding Unicode -NoNewline -Force
     Write-Ok "Created Windows shim -> $shimPath"
 
     try {
