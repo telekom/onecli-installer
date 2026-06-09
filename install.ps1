@@ -322,9 +322,16 @@ exec $execCmd "`$@"
     }
 
     # --- PATH ---
+    # Persist BinDir to the user PATH, but only when it isn't already reachable.
+    # We check both the persisted user PATH and the live session PATH so we don't
+    # add a redundant copy when the user already exposes BinDir another way (e.g.
+    # an `$env:PATH += ...` line in their PowerShell profile), which would
+    # otherwise surface as a duplicate entry on every new shell.
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-    $pathEntries = if ($userPath) { $userPath -split ';' } else { @() }
-    if (-not ($pathEntries -contains $BinDir)) {
+    $persistedEntries = if ($userPath) { $userPath -split ';' | Where-Object { $_ } } else { @() }
+    $sessionEntries = if ($env:Path) { $env:Path -split ';' | Where-Object { $_ } } else { @() }
+    $alreadyOnPath = ($persistedEntries -contains $BinDir) -or ($sessionEntries -contains $BinDir)
+    if (-not $alreadyOnPath) {
         $newPath = if ($userPath) { "$userPath;$BinDir" } else { $BinDir }
         [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
         Write-Warn2 "Added $BinDir to your user PATH. Open a new terminal for the change to take effect."
