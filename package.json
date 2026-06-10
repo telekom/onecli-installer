@@ -1,0 +1,10 @@
+{
+  "name": "onecli-installer",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

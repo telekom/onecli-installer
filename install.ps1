@@ -48,21 +48,28 @@ param(
     [string]$Token
 )
 
-# Everything runs inside a script block + try/catch so that:
-#   - `throw` from helpers unwinds the block (below) instead of calling `exit`,
-#     which would close the caller's shell when invoked via `irm | iex`.
-#   - $ErrorActionPreference changes don't leak into the user's session.
-try {
-& {
+# `throw` from helpers is handled by a trap instead of `exit`, which would
+# close the caller's shell when invoked via `irm | iex`.
+$PreviousErrorActionPreference = $ErrorActionPreference
 $ErrorActionPreference = 'Stop'
+trap {
+    Write-Host "ERROR $($_.Exception.Message)" -ForegroundColor Red
+    if ($extractDir -and (Test-Path $extractDir)) { Remove-Item -Recurse -Force $extractDir -ErrorAction SilentlyContinue }
+    if ($downloadedTarball -and (Test-Path (Split-Path $downloadedTarball -Parent))) {
+        Remove-Item -Recurse -Force (Split-Path $downloadedTarball -Parent) -ErrorAction SilentlyContinue
+    }
+    $ErrorActionPreference = $PreviousErrorActionPreference
+    return
+}
 
-# --- proxy splat: forwarded to every internal Invoke-RestMethod /
+# --- proxy helper: forwarded to every internal Invoke-RestMethod /
 # Invoke-WebRequest call so corporate proxies that require explicit
 # credentials are happy. No-op when HTTPS_PROXY isn't set.
-$ProxyArgs = @{}
-if ($env:HTTPS_PROXY) {
-    $ProxyArgs.Proxy = $env:HTTPS_PROXY
-    $ProxyArgs.ProxyUseDefaultCredentials = $true
+function Add-ProxyArgs([hashtable]$RequestArgs) {
+    if ($env:HTTPS_PROXY) {
+        $RequestArgs['Proxy'] = $env:HTTPS_PROXY
+        $RequestArgs['ProxyUseDefaultCredentials'] = $true
+    }
 }
 
 # --- constants ---
@@ -79,13 +86,17 @@ if ($env:ONE_BIN_DIR) { $BinDir = $env:ONE_BIN_DIR }
 
 # Data directory used by the CLI for settings and keychain fallback.
 # Must match the default in src/services/config/paths.ts (overridable via ONE_DATA_DIR).
-$OneDataDir = if ($env:ONE_DATA_DIR) { $env:ONE_DATA_DIR } `
-              elseif ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'onecli' } `
-              else { Join-Path $env:USERPROFILE 'AppData\Local\onecli' }
+if ($env:ONE_DATA_DIR) {
+    $OneDataDir = $env:ONE_DATA_DIR
+} elseif ($env:LOCALAPPDATA) {
+    $OneDataDir = Join-Path $env:LOCALAPPDATA 'onecli'
+} else {
+    $OneDataDir = Join-Path $env:USERPROFILE 'AppData\Local\onecli'
+}
 
 # --- output helpers ---
 function Write-Info($msg) { Write-Host $msg }
-function Write-Ok($msg) { Write-Host "✓ $msg" -ForegroundColor Green }
+function Write-Ok($msg) { Write-Host "OK $msg" -ForegroundColor Green }
 function Write-Warn2($msg) { Write-Host "! $msg" -ForegroundColor Yellow }
 function Write-Err($msg) {
     # `throw` unwinds the enclosing script block so the caller sees a clean
@@ -120,8 +131,8 @@ if ($Tarball) {
 }
 
 # --- state ---
-$accessToken = $null
-$tokenResponse = $null
+$script:accessToken = $null
+$script:tokenResponse = $null
 $downloadedTarball = $null
 $tag = $null
 
@@ -129,34 +140,49 @@ $tag = $null
 function Invoke-DeviceFlow {
     Write-Info 'Authenticating via GitLab device flow...'
     try {
-        $resp = Invoke-RestMethod -Method Post -Uri "$GitLabUrl/oauth/authorize_device" `
-            -Body @{ client_id = $GitLabClientId; scope = $GitLabScopes } `
-            -ContentType 'application/x-www-form-urlencoded' @ProxyArgs
+        $deviceArgs = @{
+            Method = 'Post'
+            Uri = "$GitLabUrl/oauth/authorize_device"
+            Body = @{ client_id = $GitLabClientId; scope = $GitLabScopes }
+            ContentType = 'application/x-www-form-urlencoded'
+        }
+        Add-ProxyArgs $deviceArgs
+        $resp = Invoke-RestMethod @deviceArgs
     } catch {
         return $false
     }
 
     if (-not $resp.device_code) { return $false }
 
-    $interval = if ($resp.interval) { [int]$resp.interval } else { 5 }
+    $interval = 5
+    if ($resp.interval) { $interval = [int]$resp.interval }
     Write-Info ''
     Write-Info "  Open:        $($resp.verification_uri)"
     Write-Info "  Enter code:  $($resp.user_code)"
     Write-Info ''
-    try { Start-Process $resp.verification_uri | Out-Null } catch { }
+    try {
+        Start-Process $resp.verification_uri | Out-Null
+    } catch {
+        <# best-effort #>
+    }
     Write-Info 'Waiting for authorization...'
 
     $deadline = (Get-Date).AddSeconds($DeviceFlowTimeoutSec)
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds $interval
         try {
-            $tok = Invoke-RestMethod -Method Post -Uri "$GitLabUrl/oauth/token" `
-                -Body @{
-                    client_id   = $GitLabClientId
+            $tokenArgs = @{
+                Method = 'Post'
+                Uri = "$GitLabUrl/oauth/token"
+                Body = @{
+                    client_id = $GitLabClientId
                     device_code = $resp.device_code
-                    grant_type  = 'urn:ietf:params:oauth:grant-type:device_code'
-                } `
-                -ContentType 'application/x-www-form-urlencoded' @ProxyArgs
+                    grant_type = 'urn:ietf:params:oauth:grant-type:device_code'
+                }
+                ContentType = 'application/x-www-form-urlencoded'
+            }
+            Add-ProxyArgs $tokenArgs
+            $tok = Invoke-RestMethod @tokenArgs
         } catch {
             $tok = $null
             if ($_.Exception.Response) {
@@ -165,7 +191,9 @@ function Invoke-DeviceFlow {
                     $reader = New-Object System.IO.StreamReader($stream)
                     $body = $reader.ReadToEnd()
                     $tok = $body | ConvertFrom-Json
-                } catch { $tok = $null }
+                } catch {
+                    $tok = $null
+                }
             }
         }
 
@@ -190,7 +218,7 @@ function Invoke-DeviceFlow {
 }
 
 function Read-PatPrompt {
-    Write-Warn2 'Device flow unavailable — falling back to Personal Access Token.'
+    Write-Warn2 'Device flow unavailable - falling back to Personal Access Token.'
     Write-Info "Create a PAT with scope read_api at:"
     Write-Info "  $GitLabUrl/-/user_settings/personal_access_tokens"
     $secure = Read-Host -AsSecureString 'Paste token'
@@ -200,39 +228,38 @@ function Read-PatPrompt {
 }
 
 # --- web mode: platform + auth + download ---
-if ($mode -eq 'web') {
+function Resolve-WebTarball {
     $arch = $env:PROCESSOR_ARCHITECTURE
     if ($env:PROCESSOR_ARCHITEW6432) { $arch = $env:PROCESSOR_ARCHITEW6432 }
-    switch ($arch.ToUpperInvariant()) {
-        'ARM64' { $target = 'win32-arm64' }
-        'AMD64' { $target = 'win32-x64' }
-        'X86'   { $target = 'win32-x64' }  # 32-bit process on 64-bit Windows — use x64 package
-        default { Write-Err "Unsupported arch: $arch" }
-    }
+    $archUpper = $arch.ToUpperInvariant()
+    $target = $null
+    if ($archUpper -eq 'ARM64') { $target = 'win32-arm64' }
+    if ($archUpper -eq 'AMD64') { $target = 'win32-x64' }
+    if ($archUpper -eq 'X86') { $target = 'win32-x64' } # 32-bit process on 64-bit Windows uses x64 package.
+    if (-not $target) { Write-Err "Unsupported arch: $arch" }
 
     Write-Info "Installing one-cli ($target)"
 
     if ($Token) {
-        $accessToken = $Token
-    } elseif (-not (Invoke-DeviceFlow)) {
-        Read-PatPrompt
+        $script:accessToken = $Token
+    }
+    if (-not $Token) {
+        if (-not (Invoke-DeviceFlow)) {
+            Read-PatPrompt
+        }
     }
 
     Write-Info 'Fetching latest release...'
     $releasesUrl = "$GitLabUrl/api/v4/projects/$GitLabProjectId/releases?per_page=1"
     $release = $null
-    try {
-        $releases = Invoke-RestMethod -Headers @{ Authorization = "Bearer $script:accessToken" } `
-            -Uri $releasesUrl @ProxyArgs
-        if ($releases -and $releases.Count -gt 0) {
-            $release = $releases[0]
-        }
-    } catch {
-        $s = ''
-        if ($_.Exception.Response) {
-            try { $s = " [HTTP $([int]$_.Exception.Response.StatusCode)]" } catch {}
-        }
-        Write-Err "Failed to fetch latest release from $releasesUrl$s : $($_.Exception.Message)"
+    $releaseArgs = @{
+        Headers = @{ Authorization = "Bearer $script:accessToken" }
+        Uri = $releasesUrl
+    }
+    Add-ProxyArgs $releaseArgs
+    $releases = Invoke-RestMethod @releaseArgs
+    if ($releases -and $releases.Count -gt 0) {
+        $release = $releases[0]
     }
 
     if (-not $release) { Write-Err "Could not resolve a release object from $releasesUrl." }
@@ -246,23 +273,36 @@ if ($mode -eq 'web') {
     $tmp = New-Item -ItemType Directory -Path (Join-Path ([System.IO.Path]::GetTempPath()) ("one-install-" + [Guid]::NewGuid().ToString('N')))
     $downloadedTarball = Join-Path $tmp 'pkg.tar.gz'
     Write-Info "Downloading $tag ($target)..."
-    try {
-        Invoke-WebRequest -Headers @{ Authorization = "Bearer $script:accessToken" } `
-            -Uri $link.url -OutFile $downloadedTarball -UseBasicParsing @ProxyArgs
-    } catch {
-        Write-Err "Download failed: $($_.Exception.Message)"
+    $downloadArgs = @{
+        Headers = @{ Authorization = "Bearer $script:accessToken" }
+        Uri = $link.url
+        OutFile = $downloadedTarball
+        UseBasicParsing = $true
     }
-    $Tarball = $downloadedTarball
-} else {
+    Add-ProxyArgs $downloadArgs
+    Invoke-WebRequest @downloadArgs
+    [pscustomobject]@{
+        Tarball = $downloadedTarball
+        DownloadedTarball = $downloadedTarball
+        Tag = $tag
+    }
+}
+
+if ($mode -eq 'web') {
+    $webPackage = Resolve-WebTarball
+    $Tarball = $webPackage.Tarball
+    $downloadedTarball = $webPackage.DownloadedTarball
+    $tag = $webPackage.Tag
+}
+if ($mode -ne 'web') {
     Write-Info "Installing one-cli (from $(Split-Path $Tarball -Leaf))"
 }
 
 # --- extract + move into place ---
 $extractDir = New-Item -ItemType Directory -Path (Join-Path ([System.IO.Path]::GetTempPath()) ("one-extract-" + [Guid]::NewGuid().ToString('N')))
 
-try {
     Write-Info 'Extracting...'
-    # Skip node_modules/.bin/* — those are Unix-style symlinks produced on the
+    # Skip node_modules/.bin/* - those are Unix-style symlinks produced on the
     # Linux CI runner. Windows tar cannot create them without Developer Mode /
     # admin, and the CLI does not need them at runtime (bin\one.cmd invokes
     # node on dist/index.js directly).
@@ -270,7 +310,7 @@ try {
     if ($LASTEXITCODE -ne 0) { Write-Err "tar failed with exit code $LASTEXITCODE" }
 
     $extracted = Get-ChildItem -Path $extractDir -Directory | Where-Object { $_.Name -like 'one*' } | Select-Object -First 1
-    if (-not $extracted) { Write-Err "Unexpected archive structure — no 'one*' directory found." }
+    if (-not $extracted) { Write-Err "Unexpected archive structure - no 'one*' directory found." }
 
     if (Test-Path $InstallDir) {
         Write-Info "Removing previous installation at $InstallDir..."
@@ -284,7 +324,7 @@ try {
     # --- shim on PATH ---
     $oneLauncher = Join-Path $InstallDir 'bin\one.cmd'
     if (-not (Test-Path $oneLauncher)) {
-        # Some oclif tarball shapes ship bin\one only — synthesize a .cmd launcher
+        # Some oclif tarball shapes ship bin\one only - synthesize a .cmd launcher
         $oneLauncher = Join-Path $InstallDir 'bin\one'
         if (-not (Test-Path $oneLauncher)) { Write-Err "Installed archive is missing bin\one.cmd or bin\one" }
     }
@@ -298,19 +338,19 @@ try {
 
     try {
         $oneLauncherUnix = ($oneLauncher -replace '\\', '/') -replace "'", "'\''"
-        $execCmd = if ($oneLauncher -like '*.cmd') {
-            "'$oneLauncherUnix'"
+        if ($oneLauncher -like '*.cmd') {
+            $execCmd = "'$oneLauncherUnix'"
         } else {
-            "node '$oneLauncherUnix'"
+            $execCmd = "node '$oneLauncherUnix'"
         }
-        $shShimBody = (@"
-#!/bin/sh
-if grep -qiE 'microsoft|wsl' /proc/version 2>/dev/null; then
-  echo "WSL detected - please install the Linux version." >&2
-  exit 1
-fi
-exec $execCmd "`$@"
-"@) -replace "`r`n", "`n"
+        $shShimBody = (@(
+            '#!/bin/sh'
+            "if grep -qiE 'microsoft|wsl' /proc/version 2>/dev/null; then"
+            '  echo "WSL detected - please install the Linux version." >&2'
+            '  exit 1'
+            'fi'
+            "exec $execCmd `"`$@`""
+        ) -join "`n") + "`n"
 
         $shShimPath = Join-Path $BinDir 'one'
         # Clear read-only from a prior install so the overwrite doesn't fail.
@@ -328,11 +368,17 @@ exec $execCmd "`$@"
     # an `$env:PATH += ...` line in their PowerShell profile), which would
     # otherwise surface as a duplicate entry on every new shell.
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-    $persistedEntries = if ($userPath) { $userPath -split ';' | Where-Object { $_ } } else { @() }
-    $sessionEntries = if ($env:Path) { $env:Path -split ';' | Where-Object { $_ } } else { @() }
+    $persistedEntries = @()
+    if ($userPath) { $persistedEntries = $userPath -split ';' | Where-Object { $_ } }
+    $sessionEntries = @()
+    if ($env:Path) { $sessionEntries = $env:Path -split ';' | Where-Object { $_ } }
     $alreadyOnPath = ($persistedEntries -contains $BinDir) -or ($sessionEntries -contains $BinDir)
     if (-not $alreadyOnPath) {
-        $newPath = if ($userPath) { "$userPath;$BinDir" } else { $BinDir }
+        if ($userPath) {
+            $newPath = "$userPath;$BinDir"
+        } else {
+            $newPath = $BinDir
+        }
         [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
         Write-Warn2 "Added $BinDir to your user PATH. Open a new terminal for the change to take effect."
     }
@@ -342,13 +388,16 @@ exec $execCmd "`$@"
     # so the CLI has a ready token from run #1. The token is stored in Windows
     # Credential Manager under the same target as other CLI credentials.
     # Creates the data directory regardless of whether the keychain write
-    # succeeds — the CLI fetches the token lazily on first use if needed.
-    if ($mode -eq 'web' -and $accessToken) {
+    # succeeds - the CLI fetches the token lazily on first use if needed.
+    if ($mode -eq 'web' -and $script:accessToken) {
         try {
             $telemetryTokenUrl = "$GitLabUrl/api/v4/projects/$GitLabProjectId/packages/generic/telemetry/current/otlp-token-prod"
-            $telemetryToken = (Invoke-RestMethod `
-                -Headers @{ Authorization = "Bearer $accessToken" } `
-                -Uri $telemetryTokenUrl @ProxyArgs).Trim()
+            $telemetryArgs = @{
+                Headers = @{ Authorization = "Bearer $script:accessToken" }
+                Uri = $telemetryTokenUrl
+            }
+            Add-ProxyArgs $telemetryArgs
+            $telemetryToken = (Invoke-RestMethod @telemetryArgs).Trim()
 
             if ($telemetryToken) {
                 try {
@@ -357,36 +406,35 @@ exec $execCmd "`$@"
                     # CredentialManager PowerShell module using the same target name format.
                     $credTarget = "de.telekom.one:telemetry-prod"
                     & cmdkey /generic:$credTarget /user:telemetry-prod /pass:$telemetryToken 2>$null | Out-Null
-                } catch { <# best-effort #> }
+                } catch {
+                    <# best-effort #>
+                }
             }
-        } catch { <# best-effort — relay not yet populated or network unavailable #> }
+        } catch {
+            <# best-effort - relay not yet populated or network unavailable #>
+        }
     }
 
     # Create the data dir so the CLI finds it on first use.
     try {
         New-Item -ItemType Directory -Path $OneDataDir -Force | Out-Null
-    } catch { <# best-effort #> }
+    } catch {
+        <# best-effort #>
+    }
 
     Write-Info ''
     if ($mode -eq 'web') {
-        Write-Ok "Installed one $tag → $shimPath"
+        Write-Ok "Installed one $tag -> $shimPath"
     } else {
-        Write-Ok "Installed one → $shimPath"
+        Write-Ok "Installed one -> $shimPath"
     }
-    if ($tokenResponse) {
+    if ($script:tokenResponse) {
         Write-Info 'Run `one auth login` once to save credentials to Credential Manager, then try `one --help`.'
     } else {
         Write-Info "Run `one auth login` (if you haven't), then try `one --help`."
     }
-} finally {
-    if (Test-Path $extractDir) { Remove-Item -Recurse -Force $extractDir -ErrorAction SilentlyContinue }
-    if ($downloadedTarball -and (Test-Path (Split-Path $downloadedTarball -Parent))) {
-        Remove-Item -Recurse -Force (Split-Path $downloadedTarball -Parent) -ErrorAction SilentlyContinue
-    }
+if (Test-Path $extractDir) { Remove-Item -Recurse -Force $extractDir -ErrorAction SilentlyContinue }
+if ($downloadedTarball -and (Test-Path (Split-Path $downloadedTarball -Parent))) {
+    Remove-Item -Recurse -Force (Split-Path $downloadedTarball -Parent) -ErrorAction SilentlyContinue
 }
-} # end of & { ... } installer block
-} catch {
-    # Pretty-print the error and keep the shell alive. When invoked via
-    # `irm | iex` we cannot call `exit` — it would close the host.
-    Write-Host "✗ $($_.Exception.Message)" -ForegroundColor Red
-}
+$ErrorActionPreference = $PreviousErrorActionPreference

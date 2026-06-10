@@ -10,7 +10,7 @@ Public installer scripts for the OneCLI command-line tool.
 curl -fsSL https://raw.githubusercontent.com/telekom/onecli-installer/main/install.sh | bash
 ```
 
-Requires Node.js ≥ 24, `curl`, and `tar`.
+Requires Node.js >= 24, `curl`, and `tar`.
 
 ### Windows
 
@@ -32,7 +32,16 @@ iex (irm @a)
 
 The script forwards `$env:HTTPS_PROXY` to all internal GitLab API calls.
 
-Requires Node.js ≥ 24 and Windows 10 1803+ (for the built-in `tar`).
+Requires Node.js >= 24 and Windows 10 1803+ (for the built-in `tar`).
+
+## Test
+
+```sh
+npm test
+```
+
+The suite uses hermetic fake release tarballs. Bash installer tests run on
+macOS/Linux; the PowerShell local-install e2e test runs on Windows CI.
 
 ## License
 
