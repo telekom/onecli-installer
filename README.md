@@ -1,5 +1,8 @@
 # OneCLI installer
 
+[![License](https://img.shields.io/github/license/telekom/onecli-installer)](LICENSE)
+[![CI/CD tests](https://img.shields.io/github/check-runs/telekom/onecli-installer/main?label=CI%2FCD%20tests)](https://github.com/telekom/onecli-installer/actions)
+
 Public installer scripts for the OneCLI command-line tool.
 
 ## Install
