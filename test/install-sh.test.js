@@ -147,6 +147,23 @@ test('install.sh does not reintroduce removed telemetry marker files', () => {
   assert.doesNotMatch(installScriptSource, /telemetry-token-check/);
 });
 
+test('install.sh requires acknowledging the GitLab user code before opening the browser', () => {
+  const authStart = installScriptSource.indexOf('auth_device_flow() {');
+  const authEnd = installScriptSource.indexOf('auth_pat_prompt() {');
+  assert.notEqual(authStart, -1);
+  assert.notEqual(authEnd, -1);
+  const authDeviceFlow = installScriptSource.slice(authStart, authEnd);
+
+  assert.match(installScriptSource, /Press Enter to open GitLab in your browser/);
+  assert.match(installScriptSource, /ONE_AUTH_SKIP_BROWSER_PROMPT/);
+  assert.match(authDeviceFlow, /You will need this code in the browser:/);
+  assert.match(authDeviceFlow, /wait_for_browser_confirmation/);
+  assert.ok(
+    authDeviceFlow.indexOf('wait_for_browser_confirmation') <
+      authDeviceFlow.indexOf('open_url "$verification_uri"'),
+  );
+});
+
 test('install.sh local mode installs a fake package and writes PATH once', { skip: process.platform === 'win32' }, (t) => {
   const root = makeTempDir(t);
   const tarball = makePosixTarball(t, root);

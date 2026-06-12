@@ -62,6 +62,9 @@ Environment:
   ONE_BIN_DIR             Same as --bin-dir
   ONE_TOKEN               Skip interactive auth; use this GitLab token
                           (PAT or OAuth access token) for the download.
+  ONE_AUTH_SKIP_BROWSER_PROMPT
+                          Set to 1 to open the browser immediately during
+                          GitLab device-flow auth.
 EOF
       exit 0
       ;;
@@ -125,6 +128,15 @@ open_url() {
   return 1
 }
 
+wait_for_browser_confirmation() {
+  [ "${ONE_AUTH_SKIP_BROWSER_PROMPT:-}" = "1" ] && return 0
+  [ "$TTY" != "/dev/null" ] || return 0
+
+  printf 'Press Enter to open GitLab in your browser...' > "$TTY"
+  IFS= read -r _ < "$TTY" || true
+  printf '\n' > "$TTY"
+}
+
 # --- mode detection ---
 if [ -n "$TARBALL" ]; then
   MODE="local"
@@ -156,8 +168,9 @@ auth_device_flow() {
 
   info ""
   info "  Open this URL:  ${BOLD}${verification_uri}${RESET}"
-  info "  Enter code:     ${BOLD}${user_code}${RESET}"
+  info "  You will need this code in the browser: ${BOLD}${user_code}${RESET}"
   info ""
+  wait_for_browser_confirmation
   if ! open_url "$verification_uri"; then
     if is_wsl; then
       info "${DIM}(WSL detected — your browser will not open automatically; copy the URL above into your Windows browser.)${RESET}"
