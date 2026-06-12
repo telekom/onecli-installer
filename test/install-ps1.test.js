@@ -113,6 +113,22 @@ test('install.ps1 forwards HTTPS proxy settings to web requests', () => {
   assert.ok((script.match(/Add-ProxyArgs/g) || []).length >= 6);
 });
 
+test('install.ps1 requires acknowledging the GitLab user code before opening the browser', () => {
+  const authStart = script.indexOf('function Invoke-DeviceFlow');
+  const authEnd = script.indexOf('function Read-PatPrompt');
+  assert.notEqual(authStart, -1);
+  assert.notEqual(authEnd, -1);
+  const authDeviceFlow = script.slice(authStart, authEnd);
+
+  assert.match(authDeviceFlow, /You will need this code in the browser:/);
+  assert.match(authDeviceFlow, /Press Enter to open GitLab in your browser/);
+  assert.match(authDeviceFlow, /ONE_AUTH_SKIP_BROWSER_PROMPT/);
+  assert.ok(
+    authDeviceFlow.indexOf('Press Enter to open GitLab in your browser') <
+      authDeviceFlow.indexOf('Start-Process $resp.verification_uri'),
+  );
+});
+
 test('install.ps1 restores ErrorActionPreference after installer errors', () => {
   assert.match(script, /\$PreviousErrorActionPreference = \$ErrorActionPreference/);
   assert.match(script, /\$ErrorActionPreference = 'Stop'/);

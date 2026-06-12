@@ -39,6 +39,10 @@
 .PARAMETER Token
   Skip interactive auth; use this GitLab token (PAT or OAuth access
   token) for the download. Also honored via the ONE_TOKEN env var.
+
+.ENVIRONMENT
+  ONE_AUTH_SKIP_BROWSER_PROMPT=1 opens the browser immediately during
+  GitLab device-flow auth.
 #>
 [CmdletBinding()]
 param(
@@ -158,8 +162,15 @@ function Invoke-DeviceFlow {
     if ($resp.interval) { $interval = [int]$resp.interval }
     Write-Info ''
     Write-Info "  Open:        $($resp.verification_uri)"
-    Write-Info "  Enter code:  $($resp.user_code)"
+    Write-Info "  You will need this code in the browser: $($resp.user_code)"
     Write-Info ''
+    if ($env:ONE_AUTH_SKIP_BROWSER_PROMPT -ne '1') {
+        try {
+            [void](Read-Host 'Press Enter to open GitLab in your browser')
+        } catch {
+            <# best-effort for non-interactive hosts #>
+        }
+    }
     try {
         Start-Process $resp.verification_uri | Out-Null
     } catch {
