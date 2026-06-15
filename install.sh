@@ -23,7 +23,7 @@ main() {
 GITLAB_URL="https://gitlab.devops.telekom.de"
 GITLAB_PROJECT_ID="452386"
 GITLAB_CLIENT_ID="cc421c2bb511f08109854cd7f93de401909fc8228999a20394cd8634a6266928"
-GITLAB_SCOPES="api openid read_user"
+GITLAB_SCOPES="read_api openid read_user"
 KEYCHAIN_SERVICE="de.telekom.one"
 KEYCHAIN_ACCOUNT="oauth"
 NODE_MIN_MAJOR=24
