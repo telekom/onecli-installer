@@ -147,6 +147,11 @@ test('install.sh does not reintroduce removed telemetry marker files', () => {
   assert.doesNotMatch(installScriptSource, /telemetry-token-check/);
 });
 
+test('install.sh device flow only requests read_api GitLab scope', () => {
+  assert.match(installScriptSource, /^GITLAB_SCOPES="read_api openid read_user"$/m);
+  assert.doesNotMatch(installScriptSource, /^GITLAB_SCOPES="api\b/m);
+});
+
 test('install.sh requires acknowledging the GitLab user code before opening the browser', () => {
   const authStart = installScriptSource.indexOf('auth_device_flow() {');
   const authEnd = installScriptSource.indexOf('auth_pat_prompt() {');

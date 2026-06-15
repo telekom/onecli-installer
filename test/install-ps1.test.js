@@ -113,6 +113,11 @@ test('install.ps1 forwards HTTPS proxy settings to web requests', () => {
   assert.ok((script.match(/Add-ProxyArgs/g) || []).length >= 6);
 });
 
+test('install.ps1 device flow only requests read_api GitLab scope', () => {
+  assert.match(script, /^\$GitLabScopes = 'read_api openid read_user'\r?$/m);
+  assert.doesNotMatch(script, /^\$GitLabScopes = 'api\b/m);
+});
+
 test('install.ps1 requires acknowledging the GitLab user code before opening the browser', () => {
   const authStart = script.indexOf('function Invoke-DeviceFlow');
   const authEnd = script.indexOf('function Read-PatPrompt');
