@@ -78,7 +78,7 @@ function Add-ProxyArgs([hashtable]$RequestArgs) {
 
 # --- constants ---
 $GitLabUrl = 'https://gitlab.devops.telekom.de'
-$GitLabProjectId = '452386'
+$GitLabProjectId = '540000'
 $GitLabClientId = 'cc421c2bb511f08109854cd7f93de401909fc8228999a20394cd8634a6266928'
 $GitLabScopes = 'read_api openid read_user'
 $NodeMinMajor = 24
